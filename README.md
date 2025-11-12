@@ -1,2 +1,2 @@
 # DBMS_Project
-T
+This repo is for DBMS Project
