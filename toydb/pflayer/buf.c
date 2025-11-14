@@ -2,6 +2,7 @@
 PFbufGet(), PFbufUnfix(), PFbufAlloc(), PFbufReleaseFile(), PFbufUsed() and
 PFbufPrint() */
 #include <stdio.h>
+#include <stdlib.h> // This is the modern header for malloc()
 #include "pf.h"
 #include "pftypes.h"
 
@@ -10,7 +11,6 @@ static PFbpage *PFfirstbpage= NULL;	/* ptr to first buffer page, or NULL */
 static PFbpage *PFlastbpage = NULL;	/* ptr to last buffer page, or NULL */
 static PFbpage *PFfreebpage= NULL;	/* list of free buffer pages */
 
-extern char *malloc();
 
 static void PFbufInsertFree(bpage)
 PFbpage *bpage;

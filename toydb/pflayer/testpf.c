@@ -1,5 +1,6 @@
 /* testpf.c */
 #include <stdio.h>
+#include <stdlib.h>
 #include "pf.h"
 #include "pftypes.h"
 
@@ -142,7 +143,7 @@ int fd1,fd2;
 			PF_PrintError("unfix file1");
 			exit(1);
 		}
-		printf("alloc %d file1\n",i,pagenum);
+		printf("alloc %d page %d file1\n",i,pagenum);
 
 		if ((error=PF_AllocPage(fd1,&pagenum,&buf))!= PFE_OK){
 			PF_PrintError("first buffer\n");
@@ -153,7 +154,7 @@ int fd1,fd2;
 			PF_PrintError("dispose file1");
 			exit(1);
 		}
-		printf("alloc %d file2\n",i,pagenum);
+		printf("alloc %d page %d file2\n",i,pagenum);
 	}
 
 	for (i= PF_MAX_BUFS; i < PF_MAX_BUFS*2; i++){

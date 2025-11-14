@@ -1,5 +1,6 @@
 /* pf.c: Paged File Interface Routines+ support routines */
 #include <stdio.h>
+#include <stdlib.h> // This is the modern header for malloc()
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/file.h>
@@ -24,7 +25,7 @@ sense that it's <0 or >= # of pages in the file */
 #define PFinvalidPagenum(fd,pagenum) ((pagenum)<0 || (pagenum) >= \
 				PFftab[fd].hdr.numpages)
 
-extern char *malloc();
+
 
 /****************** Internal Support Functions *****************************/
 static char *savestr(str)

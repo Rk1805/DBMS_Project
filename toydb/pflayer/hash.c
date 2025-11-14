@@ -1,5 +1,6 @@
 /* hash.c: Functions to facilitate finding the buffer page given
 a file descriptor and a page number */
+#include <stdlib.h> // This is the modern header for malloc()
 #include <stdio.h>
 #include "pf.h"
 #include "pftypes.h"
@@ -7,7 +8,7 @@ a file descriptor and a page number */
 /* hash table */
 static PFhash_entry *PFhashtbl[PF_HASH_TBL_SIZE];
 
-extern char *malloc();
+
 
 void PFhashInit()
 /****************************************************************************
