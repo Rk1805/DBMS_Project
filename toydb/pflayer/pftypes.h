@@ -1,4 +1,7 @@
-/* pftypes.h: declarations for Paged File interface */
+
+#ifndef PFTYPES_H
+#define PFTYPES_H
+#include "pf.h"
 
 /**************************** File Page Decls *********************/
 /* Each file contains a header, which is a integer pointing
@@ -31,8 +34,9 @@ typedef struct PFftab_ele {
 	int unixfd;	/* unix file descriptor*/
 	PFhdr_str hdr;	/* file header */
 	short hdrchanged; /* TRUE if file header has changed */
+	int strategy;	/* replacement strategy for this file */
 } PFftab_ele;
-
+extern PFftab_ele PFftab[];
 /************************** Buffer Page Decls *********************/
 #define PF_MAX_BUFS	20	/* max # of buffers */
 
@@ -78,3 +82,12 @@ extern PFbufGet();
 extern PFbufUnfix();
 extern PFbufalloc();
 extern PFbufReleaseFile();
+
+/****************** New Interface functions from Buffer Manager *************/
+extern void PFbufInit(int numBuffers);
+extern int  PFbufSetDirty(int fd, int pageNum);
+extern void PFbufStatsInit();
+extern void PFbufStatsPrint();
+
+
+#endif

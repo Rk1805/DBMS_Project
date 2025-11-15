@@ -10,8 +10,12 @@ static int PFnumbpage = 0;	/* # of buffer pages in memory */
 static PFbpage *PFfirstbpage= NULL;	/* ptr to first buffer page, or NULL */
 static PFbpage *PFlastbpage = NULL;	/* ptr to last buffer page, or NULL */
 static PFbpage *PFfreebpage= NULL;	/* list of free buffer pages */
+int PF_logicalReads = 0;
+int PF_logicalWrites = 0;
+int PF_physicalReads = 0;
+int PF_physicalWrites = 0;
 
-
+extern int PF_MAX_BUFS_RUNTIME;
 static void PFbufInsertFree(bpage)
 PFbpage *bpage;
 /****************************************************************************
@@ -91,9 +95,10 @@ GLOBAL VARIABLES MODIFIED:
 }
 
 
-static PFbufInternalAlloc(bpage,writefcn)
-PFbpage **bpage;	/* pointer to pointer to buffer bpage to be allocated*/
+static PFbufInternalAlloc(bpage, writefcn, fd)
+PFbpage **bpage;
 int (*writefcn)();
+int fd;
 /****************************************************************************
 SPECIFICATIONS:
 	Allocate a buffer page and set *bpage to point to it. *bpage
@@ -132,7 +137,7 @@ int error;		/* error value returned*/
 		*bpage = PFfreebpage;
 		PFfreebpage = (*bpage)->nextpage;
 	}
-	else if (PFnumbpage < PF_MAX_BUFS){
+	else if (PFnumbpage < PF_MAX_BUFS_RUNTIME){
 		/* We have not reached max buffer limit, so
 		malloc() a new one */
 		if ((*bpage=(PFbpage *)malloc(sizeof(PFbpage)))==NULL){
@@ -150,10 +155,14 @@ int error;		/* error value returned*/
 
 		*bpage = NULL;		/* set initial return value */
 
-		for (tbpage=PFlastbpage;tbpage!=NULL;tbpage=tbpage->prevpage){
-			if (!tbpage->fixed)
-				/* found a page that can be swapped out */
-				break;
+		if (PFftab[fd].strategy == PF_REPLACE_LRU) {
+			tbpage = PFlastbpage;
+			while (tbpage != NULL && tbpage->fixed)
+				tbpage = tbpage->prevpage;
+		} else { /* MRU */
+			tbpage = PFfirstbpage;
+			while (tbpage != NULL && tbpage->fixed)
+				tbpage = tbpage->nextpage;
 		}
 
 		if (tbpage == NULL){
@@ -164,8 +173,10 @@ int error;		/* error value returned*/
 
 		/* write out the dirty page */
 		if (tbpage->dirty&&((error=(*writefcn)(tbpage->fd,
-				tbpage->page,&tbpage->fpage))!= PFE_OK))
-			return(error);
+				tbpage->page,&tbpage->fpage))!= PFE_OK)){
+				PF_physicalWrites++;
+				return(error);
+		}
 		tbpage->dirty = FALSE;
 
 		/* unlink from hash table */
@@ -227,7 +238,7 @@ int error;
 		/* page not in buffer. */
 		
 		/* allocate an empty page */
-		if ((error=PFbufInternalAlloc(&bpage,writefcn))!= PFE_OK){
+		if ((error=PFbufInternalAlloc(&bpage,writefcn, fd))!= PFE_OK){
 			/* error */
 			*fpage = NULL;
 			return(error);
@@ -240,6 +251,8 @@ int error;
 			PFbufUnlink(bpage);
 			PFbufInsertFree(bpage);
 			*fpage = NULL;
+			PF_logicalReads++;
+			PF_physicalReads++;
 			return(error);
 		}
 
@@ -303,9 +316,11 @@ PFbpage *bpage;
 		return(PFerrno);
 	}
 
-	if (dirty)
+	if (dirty){
 		/* mark this page dirty */
 		bpage->dirty = TRUE;
+		PF_logicalWrites++;
+	}
 	
 	/* unfix the page */
 	bpage->fixed = FALSE;
@@ -348,7 +363,7 @@ int error;
 		return(PFerrno);
 	}
 
-	if ((error=PFbufInternalAlloc(&bpage,writefcn))!= PFE_OK)
+	if ((error=PFbufInternalAlloc(&bpage,writefcn, fd))!= PFE_OK)
 		/* can't get any buffer */
 		return(error);
 	
@@ -493,4 +508,12 @@ PFbpage *bpage;
 				bpage->fd,bpage->page,(int)bpage->fixed,
 				(int)bpage->dirty,(int)&bpage->fpage);
 	}
+}
+
+
+void PF_PrintStats() {
+    printf("Logical Reads: %d\n", PF_logicalReads);
+    printf("Logical Writes: %d\n", PF_logicalWrites);
+    printf("Physical Reads: %d\n", PF_physicalReads);
+    printf("Physical Writes: %d\n", PF_physicalWrites);
 }

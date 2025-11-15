@@ -12,9 +12,10 @@
 #define L_SET 0
 #endif
 
+int PF_MAX_BUFS_RUNTIME = PF_MAX_BUFS;   /* default 20 */
 int PFerrno = PFE_OK;	/* last error message */
 
-static PFftab_ele PFftab[PF_FTAB_SIZE]; /* table of opened files */
+PFftab_ele PFftab[PF_FTAB_SIZE]; /* table of opened files */
 
 /* true if file descriptor fd is invaild */
 #define PFinvalidFd(fd) ((fd) < 0 || (fd) >= PF_FTAB_SIZE \
@@ -169,7 +170,8 @@ int error;
 
 /************************* Interface Routines ****************************/
 
-void PF_Init()
+void PF_Init(numBuffers)
+int numBuffers;	/* number of buffers to be used */
 /****************************************************************************
 SPECIFICATIONS:
 	Initialize the PF interface. Must be the first function called
@@ -184,12 +186,14 @@ GLOBAL VARIABLES MODIFIED:
 *****************************************************************************/
 {
 int i;
+PF_MAX_BUFS_RUNTIME = numBuffers;
 	/* init the hash table */
 	PFhashInit();
 
 	/* init the file table to be not used*/
 	for (i=0; i < PF_FTAB_SIZE; i++){
 		PFftab[i].fname = NULL;
+		PFftab[i].strategy = PF_REPLACE_LRU; /* default strategy */
 	}
 }
 
@@ -274,8 +278,9 @@ int error;
 }
 
 
-PF_OpenFile(fname)
+PF_OpenFile(fname,strategy)
 char *fname;		/* name of the file to open */
+int strategy;	/* replacement strategy for this file */
 /****************************************************************************
 SPECIFICATIONS:
 	Open the paged file whose name is fname.  It is possible to open
@@ -334,7 +339,7 @@ int fd; /* file descriptor */
 		PFerrno = PFE_NOMEM;
 		return(PFerrno);
 	}
-
+	PFftab[fd].strategy = strategy;
 	return(fd);
 }
 
@@ -746,4 +751,13 @@ RETURN VALUE: none
 		perror(" ");
 	else	fprintf(stderr,"\n");
 
+}
+
+
+int PF_MarkDirty(int fd, int pagenum) {
+    PFbpage *b;
+    if ((b = PFhashFind(fd, pagenum)) == NULL)
+        return (PFerrno = PFE_PAGENOTINBUF);
+    b->dirty = TRUE;
+    return PFE_OK;
 }
