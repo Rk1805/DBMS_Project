@@ -14,6 +14,10 @@ int PF_logicalReads = 0;
 int PF_logicalWrites = 0;
 int PF_physicalReads = 0;
 int PF_physicalWrites = 0;
+extern int PF_physicalReads;
+extern int PF_physicalWrites;
+extern int PF_logicalReads;    /* we may also update logicalReads here if desired */
+extern int PF_logicalWrites;
 
 extern int PF_MAX_BUFS_RUNTIME;
 static void PFbufInsertFree(bpage)
@@ -172,10 +176,12 @@ int error;		/* error value returned*/
 		}
 
 		/* write out the dirty page */
-		if (tbpage->dirty&&((error=(*writefcn)(tbpage->fd,
-				tbpage->page,&tbpage->fpage))!= PFE_OK)){
-				PF_physicalWrites++;
+		if (tbpage->dirty) {
+			error = (*writefcn)(tbpage->fd, tbpage->page, &tbpage->fpage);
+			if (error != PFE_OK) {
+				/* pass error up */
 				return(error);
+			}
 		}
 		tbpage->dirty = FALSE;
 
@@ -251,8 +257,6 @@ int error;
 			PFbufUnlink(bpage);
 			PFbufInsertFree(bpage);
 			*fpage = NULL;
-			PF_logicalReads++;
-			PF_physicalReads++;
 			return(error);
 		}
 
@@ -273,6 +277,7 @@ int error;
 	else if (bpage->fixed){
 		/* page already in memory, and is fixed, so we can't
 		get it again. */
+		PF_logicalReads++;
 		*fpage = &bpage->fpage;
 		PFerrno = PFE_PAGEFIXED;
 		return(PFerrno);
@@ -421,10 +426,11 @@ int error;		/* error code */
 			}
 
 			/* write out dirty page */
-			if (bpage->dirty&&((error=(*writefcn)(fd,bpage->page,
-					&bpage->fpage))!= PFE_OK))
-				/* error writing file */
-				return(error);
+			if (bpage->dirty) {
+				if ((error = (*writefcn)(fd, bpage->page, &bpage->fpage)) != PFE_OK)
+					return(error);
+				/* successful write */
+			}
 			bpage->dirty = FALSE;
 
 			/* get rid of it from the hash table */
@@ -516,4 +522,33 @@ void PF_PrintStats() {
     printf("Logical Writes: %d\n", PF_logicalWrites);
     printf("Physical Reads: %d\n", PF_physicalReads);
     printf("Physical Writes: %d\n", PF_physicalWrites);
+}
+
+void PFbufInit(num)
+int num;
+{
+    PF_Init(num);
+}
+
+/* wrapper: set a page dirty (calls PF_MarkDirty implemented in pf.c) */
+int PFbufSetDirty(fd, pageNum)
+int fd;
+int pageNum;
+{
+    return PF_MarkDirty(fd, pageNum);
+}
+
+/* Reset stat counters */
+void PFbufStatsInit()
+{
+    PF_logicalReads = 0;
+    PF_logicalWrites = 0;
+    PF_physicalReads = 0;
+    PF_physicalWrites = 0;
+}
+
+/* Print statistics wrapper */
+void PFbufStatsPrint()
+{
+    PF_PrintStats();
 }

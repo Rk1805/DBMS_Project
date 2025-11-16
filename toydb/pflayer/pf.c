@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <sys/file.h>
 #include "pf.h"
+#include "buf.c"
 #include "pftypes.h"
 
 /* To keep system V and PC users happy */
@@ -124,7 +125,7 @@ int error;
 		else	PFerrno = PFE_INCOMPLETEREAD;
 		return(PFerrno);
 	}
-
+	PF_physicalReads++;
 	return(PFE_OK);
 }
 
@@ -162,7 +163,7 @@ int error;
 		else	PFerrno = PFE_INCOMPLETEWRITE;
 		return(PFerrno);
 	}
-
+	PF_physicalWrites++;
 	return(PFE_OK);
 
 }
