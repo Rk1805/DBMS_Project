@@ -24,6 +24,21 @@ extern int AM_LeftPageNum; /* The page Number of the leftmost leaf */
 extern int AM_Errno; /* last error in AM layer */
 extern char *calloc();
 extern char *malloc();
+extern int AM_BulkLoadFromSortedPairs(
+    char *fileName, int indexNo, char attrType,
+    int attrLength, char **keys, int *recIds, int nKeys);
+
+extern int AM_BuildIndexFromExistingFile(
+    char *dataFileName, int dataFd, char attrType, int attrLength,
+    char *indexFileName, int indexNo);
+
+extern int AM_BuildIndexIncremental(
+    char *dataFileName, int dataFd, char attrType, int attrLength,
+    char *indexFileName, int indexNo);
+
+extern int AM_BenchmarkIndexConstruction(
+    char *dataFileName, int dataFd, char attrType, int attrLength,
+    char *indexFileName);
 
 # define AM_Check if (errVal != PFE_OK) {AM_Errno = AME_PF; return(AME_PF) ;}
 # define AM_si sizeof(int)

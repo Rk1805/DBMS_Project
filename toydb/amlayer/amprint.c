@@ -167,7 +167,7 @@ switch(attrType)
    case 'c' : {
 	       bufstr = malloc((unsigned) (attrLength + 1));
                bcopy(bufPtr,bufstr,attrLength);
-               bufstr[attrLength] = '/0';
+               bufstr[attrLength] = '\0';
                printf("ATTRIBUTE is %s\n",bufstr);
                free(bufstr);
 	       break;
