@@ -370,7 +370,7 @@ static char *AMerrormsg[] = {
 };
 
 
-AM_PrintError(s)
+void AM_PrintError(s)
 char *s;
 
 {

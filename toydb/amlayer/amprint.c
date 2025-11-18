@@ -1,6 +1,6 @@
 # include <stdio.h>
 # include "am.h"
-# include "pf.h"
+# include "../pflayer/pf.h"
 
 AM_PrintIntNode(pageBuf,attrType)
 char *pageBuf;
@@ -176,7 +176,7 @@ switch(attrType)
 }
 
 
-AM_PrintTree(fileDesc,pageNum,attrType)
+void AM_PrintTree(fileDesc,pageNum,attrType)
 int pageNum;
 int fileDesc;
 char attrType;

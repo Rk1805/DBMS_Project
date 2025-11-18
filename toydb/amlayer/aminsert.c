@@ -1,6 +1,11 @@
 # include <stdio.h>
 # include "am.h"
-# include "pf.h"
+# include "../pflayer/pf.h"
+#include "amstats.h"
+
+void AM_InsertToLeafFound(char *pageBuf, int recId, int index, AM_LEAFHEADER *header);
+void AM_InsertToLeafNotFound(char *pageBuf, char *value, int recId, int index, AM_LEAFHEADER *header);
+void AM_Compact(int low, int high, char *pageBuf, char *tempPage, AM_LEAFHEADER *header);
 
 /* Inserts a key into a leaf node */
 AM_InsertintoLeaf(pageBuf,attrLength,value,recId,index,status)
@@ -82,7 +87,7 @@ int status;/* Whether key is a new key or an old key */
 
 
 /* Insert into leaf given the fact that the key is old */
-AM_InsertToLeafFound(pageBuf,recId,index,header)
+void AM_InsertToLeafFound(pageBuf,recId,index,header)
 char *pageBuf;
 int recId;
 int index;
@@ -124,7 +129,7 @@ AM_LEAFHEADER *header;
 
 
 /* Insert to a leaf given that the key is new */
-AM_InsertToLeafNotFound(pageBuf,value,recId,index,header)
+void AM_InsertToLeafNotFound(pageBuf,value,recId,index,header)
 char *pageBuf;
 char *value;
 int recId;
@@ -160,7 +165,7 @@ AM_LEAFHEADER *header;
 /* There may be quite a few entries in the freelist but there may not 
 be space in the middle for a new key. This compacts all the recid's to the right
 so that there is enough space in the middle */
-AM_Compact(low,high,pageBuf,tempPage,header)
+void AM_Compact(low,high,pageBuf,tempPage,header)
 
 int low;
 int high;

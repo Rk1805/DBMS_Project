@@ -88,6 +88,11 @@ extern void PFbufInit(int numBuffers);
 extern int  PFbufSetDirty(int fd, int pageNum);
 extern void PFbufStatsInit();
 extern void PFbufStatsPrint();
+extern int PF_physicalReads;
+extern int PF_physicalWrites;
+extern int PF_logicalReads;    /* we may also update logicalReads here if desired */
+extern int PF_logicalWrites;
+extern int PF_MAX_BUFS_RUNTIME;
 
 
 #endif

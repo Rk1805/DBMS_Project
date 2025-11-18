@@ -1,4 +1,4 @@
-/* rmmgr.c: test and metrics for the RM slotted-page manager */
+/* rmtest.c: test and metrics for the RM slotted-page manager */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,123 +10,157 @@
 #define TEST_FILE "students.rm"
 #define NUM_RECORDS 5000
 
-/* Random student record generator (variable length) */
-static void make_student_record(char *buf, int len, int recno) {
-    /* simple synthetic record: "id:xxx,name:Student_xxx,notes:..." */
-    int used = snprintf(buf, len, "id:%d,name:Student_%d,grade:%d,", recno, recno, recno % 100);
+/* create synthetic student record */
+static void make_student_record(buf, len, recno)
+char *buf;
+int len;
+int recno;
+{
+    int used;
+    used = sprintf(buf, "id:%d,name:Student_%d,grade:%d,", recno, recno, recno % 100);
     while (used + 20 < len) {
-        /* pad with some random text to vary length */
-        int add = snprintf(buf + used, len - used, "c%d,", rand() % 1000);
-        if (add <= 0) break;
-        used += add;
+        used += sprintf(buf + used, "c%d,", rand() % 1000);
     }
 }
 
-/* compute static utilization for fixed record size */
-static double static_util(int recSize) {
+static double static_util(recSize)
+int recSize;
+{
     int num = PF_PAGE_SIZE / recSize;
     int bytes = num * recSize;
+    /* percent of page used by payload when packing fixed slots */
     return 100.0 * (double)bytes / (double)PF_PAGE_SIZE;
 }
 
-int main() {
-    srand((unsigned)time(NULL));
-    PF_Init(50); /* init PF buffer manager with 50 buffers */
-
-    /* create/destroy if exists */
-    PF_DestroyFile(TEST_FILE);
-    if (RM_CreateFile(TEST_FILE) != PFE_OK) {
-        fprintf(stderr, "RM_CreateFile failed\n");
-        return 1;
-    }
-
+int main()
+{
     RM_FileHandle fh;
-    if (RM_OpenFile(TEST_FILE, &fh) != PFE_OK) {
-        fprintf(stderr, "RM_OpenFile failed\n");
-        return 1;
-    }
-
-    printf("Inserting %d variable-length student records...\n", NUM_RECORDS);
-
-    /* insert NUM_RECORDS records, lengths vary from 16 to 512 */
-    int i;
-    int maxLen = 512;
-    char *buf = malloc(maxLen);
+    int i, len;
+    int error;
     RID rid;
-    for (i = 0; i < NUM_RECORDS; i++) {
-        int len = 16 + (rand() % 497); /* 16..512 */
-        make_student_record(buf, len, i);
-        Record rec;
-        rec.length = (int)strlen(buf) + 1; /* include terminator so we can print safely */
-        rec.data = buf;
-        if (RM_InsertRecord(&fh, rec, &rid) != PFE_OK) {
-            fprintf(stderr, "Insert failed at rec %d\n", i);
-            free(buf);
-            RM_CloseFile(&fh);
-            return 1;
-        }
-        if ((i+1) % 1000 == 0) printf("  inserted %d\n", i+1);
-    }
-    free(buf);
-
-    /* Gather stats: iterate pages, compute per-page used bytes and holes */
-    printf("\nCollecting page-level statistics...\n");
-    int page = -1;
+    int page;
+    char *buf;
     char *pagebuf;
+
     int usedTotal = 0;
     int pagesCount = 0;
-    int maxUsed = 0;
-    int minUsed = PF_PAGE_SIZE;
-    int error;
-    int pageNum;
-    int totalDeletedSlots = 0;
-    int totalSlots = 0;
+    int numSlots = 0;
+    int deletedSlots = 0;
+    int usedBytes;
 
-    /* use PF_GetFirstPage / PF_GetNextPage to enumerate used pages */
+    srand((unsigned)time(NULL));
+
+    PF_Init(50);   /* initialize PF data structures */
+    PFbufInit(50); /* allocate buffer pool */
+
+    /* recreate file */
+    PF_DestroyFile(TEST_FILE);
+    RM_CreateFile(TEST_FILE);
+
+    if ((error = RM_OpenFile(TEST_FILE, &fh)) != PFE_OK) {
+        printf("RM_OpenFile failed: %d\n", error);
+        return 1;
+    }
+
+    printf("Inserting %d records...\n", NUM_RECORDS);
+
+    buf = (char *)malloc(600);
+    if (buf == NULL) { printf("malloc failed\n"); return 1; }
+
+    for (i = 0; i < NUM_RECORDS; i++) {
+
+        len = 16 + (rand() % 497); /* 16..512 */
+        make_student_record(buf, len, i);
+
+        {
+            RM_Record rec;
+            rec.length = strlen(buf) + 1;
+            rec.data   = buf;
+
+            error = RM_InsertRecord(&fh, &rec, &rid);
+            if (error != PFE_OK) {
+                printf("Insert failed at record %d: err=%d\n", i, error);
+                free(buf);
+                RM_CloseFile(&fh);
+                return 1;
+            }
+        }
+
+        if ((i+1) % 1000 == 0)
+            printf("Inserted %d\n", i+1);
+    }
+
+    free(buf);
+
+    /* Scan all pages and compute stats */
+    printf("\nComputing slotted-page statistics...\n");
+
     page = -1;
+
     while (1) {
-        error = PF_GetNextPage(fh.fd, &page, (char **)&pagebuf);
-        if (error == PFE_OK) {
-            /* analyze page by reading header/slots */
-            int usedBytes = 0, numSlots = 0, numDeleted = 0;
-            RM_AnalyzePage(&fh, page, &usedBytes, &numSlots, &numDeleted);
-            usedTotal += usedBytes;
-            pagesCount++;
-            if (usedBytes > maxUsed) maxUsed = usedBytes;
-            if (usedBytes < minUsed) minUsed = usedBytes;
-            totalDeletedSlots += numDeleted;
-            totalSlots += numSlots;
-            /* unfix handled inside RM_AnalyzePage */
-        } else if (error == PFE_EOF) {
+
+        error = PF_GetNextPage(fh.fd, &page, &pagebuf);
+
+        if (error == PFE_EOF)
             break;
-        } else {
-            fprintf(stderr, "Error scanning pages: %d\n", error);
+        if (error != PFE_OK) {
+            printf("Error scanning pages: %d\n", error);
             break;
         }
+
+        {
+            int slots = 0;
+            int deleted = 0;
+
+            error = RM_AnalyzePage(&fh, page, &usedBytes, &slots, &deleted);
+            if (error != PFE_OK) {
+                printf("RM_AnalyzePage error %d on page %d\n", error, page);
+                PF_UnfixPage(fh.fd, page, FALSE);
+                break;
+            }
+            usedTotal += usedBytes;
+            pagesCount++;
+            numSlots += slots;
+            deletedSlots += deleted;
+        }
+
+        PF_UnfixPage(fh.fd, page, FALSE);
     }
 
-    double slotted_util = 100.0 * (double)usedTotal / (double)(pagesCount * PF_PAGE_SIZE);
-    printf("Pages used: %d\n", pagesCount);
-    printf("Total payload bytes (sum of record bytes): %d\n", usedTotal);
-    printf("Slotted-page utilization: %.2f%%\n", slotted_util);
-    printf("Slot count total: %d, deleted slots total: %d\n", totalSlots, totalDeletedSlots);
-
-    /* Compare with static fixed lengths */
-    int static_sizes[] = {32, 64, 128, 256};
-    int num_static = sizeof(static_sizes) / sizeof(static_sizes[0]);
-
-    printf("\nComparison table (Static fixed-record vs Slotted variable-length):\n");
-    printf("---------------------------------------------------------------\n");
-    printf("| Max Static Size | #rec/page | Static Util (%%) | Slotted Util (%%) |\n");
-    printf("---------------------------------------------------------------\n");
-    int si;
-    for (si = 0; si < num_static; si++) {
-        int s = static_sizes[si];
-        int num = PF_PAGE_SIZE / s;
-        double util = static_util(s);
-        printf("| %15d | %8d | %15.2f | %16.2f |\n", s, num, util, slotted_util);
+    if (pagesCount == 0) {
+        printf("No pages found!\n");
+        RM_CloseFile(&fh);
+        return 1;
     }
-    printf("---------------------------------------------------------------\n");
+
+    {
+        double util = 100.0 * (double)usedTotal / (double)(pagesCount * PF_PAGE_SIZE);
+
+        printf("Pages used: %d\n", pagesCount);
+        printf("Total payload bytes: %d\n", usedTotal);
+        printf("Total slots: %d\n", numSlots);
+        printf("Total deleted slots: %d\n", deletedSlots);
+        printf("Slotted-page utilization: %.2f%%\n", util);
+
+        printf("\nStatic table:\n");
+        printf("----------------------------------------------\n");
+        printf("| Static Size | rec/page | Static Util | Slotted Util |\n");
+        printf("----------------------------------------------\n");
+
+        {
+            int sizes[4] = {32, 64, 128, 256};
+            int k;
+            for (k = 0; k < 4; k++) {
+                int s = sizes[k];
+                int num = PF_PAGE_SIZE / s;
+                double su = static_util(s);
+                printf("| %10d | %8d | %10.2f | %12.2f |\n",
+                       s, num, su, util);
+            }
+        }
+
+        printf("----------------------------------------------\n");
+    }
 
     RM_CloseFile(&fh);
 

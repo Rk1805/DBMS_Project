@@ -25,9 +25,17 @@
 #include <string.h>
 
 #include "am.h"
-#include "pf.h"
+#include "../pflayer/pf.h"
+#include "amstats.h"
 
 #define MAX_CHILDREN_PER_NODE 1024  /* conservative */
+
+double now_ms()
+{
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    return tv.tv_sec*1000.0 + tv.tv_usec/1000.0;
+}
 
 static void write_leaf_page(
     char *pageBuf, char *attrVal, int attrLength,
@@ -92,6 +100,7 @@ int nKeys;
     int errVal;
     int fileDesc;
     int i, j, k;
+    double t0, t1;
 
     /* Parameter checks */
     if ((attrType != 'c') && (attrType != 'f') && (attrType != 'i')) {
@@ -102,6 +111,10 @@ int nKeys;
         AM_Errno = AME_INVALIDATTRLENGTH;
         return AME_INVALIDATTRLENGTH;
     }
+
+    /* Start measurement & reset PF stats */
+    AM_ResetStats();
+    t0 = now_ms();
 
     /* Build index file name */
     sprintf(indexfName, "%s.%d", fileName, indexNo);
@@ -177,6 +190,8 @@ int nKeys;
                 /* get the current leaf page */
                 errVal = PF_GetThisPage(fileDesc, pnum, &pbuf);
                 if (errVal != PFE_OK) { PF_CloseFile(fileDesc); AM_Errno = AME_PF; return AME_PF; }
+                /* count this AM page access */
+                AMstats.pagesAccessed++;
 
                 bcopy(pbuf, &hdr, AM_sl);
 
@@ -238,6 +253,9 @@ int nKeys;
                             int oldp = leafPageNums[curLeaf];
                             errVal = PF_GetThisPage(fileDesc, oldp, &oldbuf);
                             if (errVal != PFE_OK) { PF_CloseFile(fileDesc); AM_Errno = AME_PF; return AME_PF; }
+                            /* count this access */
+                            AMstats.pagesAccessed++;
+
                             AM_LEAFHEADER oldhdr;
                             bcopy(oldbuf, &oldhdr, AM_sl);
                             oldhdr.nextLeafPage = newp;
@@ -257,12 +275,7 @@ int nKeys;
             leafCount = curLeaf + 1;
         }
 
-        /* At this point we have leafCount leaves with keys filled.
-           Now build interior levels by grouping children and writing internal nodes.
-           We'll create arrays of (pageNum, firstKey) to represent children of current level,
-           and iteratively build parents until one remains. */
-
-        /* child arrays start as leaves */
+        /* Build internal levels (unchanged logical behavior) */
         {
             int levelChildCount = leafCount;
             int *childPageNums = (int *) malloc(sizeof(int) * levelChildCount);
@@ -273,14 +286,13 @@ int nKeys;
                 childFirstKeys[i] = leafFirstKeys[i];
             }
 
-            /* iteratively build parents until only one child (root) remains */
+            /* iteratively build parents until only one remains */
             while (levelChildCount > 1) {
                 int parentCountEstimate = (levelChildCount / (PF_PAGE_SIZE / (attrLength + AM_si))) + 10;
                 int *parentPageNums = (int *) malloc(sizeof(int) * parentCountEstimate);
                 char **parentFirstKeys = (char **) malloc(sizeof(char *) * parentCountEstimate);
                 int parentCount = 0;
 
-                /* pack children into internal nodes greedily */
                 i = 0;
                 while (i < levelChildCount) {
                     /* allocate internal node page */
@@ -313,23 +325,19 @@ int nKeys;
                         /* now add as many child keys as can fit */
                         while ((i < levelChildCount) && ((AM_sint + (ih.numKeys + 1) * recSize + AM_si) <= PF_PAGE_SIZE)) {
                             if (ih.numKeys == 0) {
-                                /* the first key is the key of child i+1 */
                                 if ((i+1) < levelChildCount) {
                                     bcopy(childFirstKeys[i+1],
                                           ibuf + AM_sint + AM_si + ih.numKeys * recSize,
                                           attrLength);
-                                    /* write the child pointer following the key */
                                     bcopy((char *)&childPageNums[i+1],
                                           ibuf + AM_sint + AM_si + ih.numKeys * recSize + attrLength,
                                           AM_si);
                                     ih.numKeys++;
                                     i++;
                                 } else {
-                                    /* only one child left, break */
                                     break;
                                 }
                             } else {
-                                /* subsequent keys: place childFirstKeys[i+1] if room */
                                 if ((i+1) < levelChildCount) {
                                     bcopy(childFirstKeys[i+1],
                                           ibuf + AM_sint + AM_si + ih.numKeys * recSize,
@@ -354,38 +362,33 @@ int nKeys;
                     parentPageNums[parentCount] = ipnum;
                     parentFirstKeys[parentCount] = (char *) malloc(attrLength);
                     /* copy the first key for this internal node (which is the first key of its first child) */
-                    /* get that from childFirstKeys */
-                    bcopy(childFirstKeys[(parentCount==0?0:0)], parentFirstKeys[parentCount], attrLength);
+                    bcopy(childFirstKeys[0], parentFirstKeys[parentCount], attrLength);
                     parentCount++;
                 } /* while i < levelChildCount */
 
                 /* move up one level */
-                /* free previous child arrays (but not the key buffers that we still need) */
                 free(childPageNums);
                 free(childFirstKeys);
 
-                /* new arrays */
                 childPageNums = parentPageNums;
                 childFirstKeys = parentFirstKeys;
                 levelChildCount = parentCount;
             } /* while levelChildCount > 1 */
 
-            /* At this point childPageNums[0] is the root page number (some page possibly >0).
-               We MUST ensure the root is at page 0 reserved previously (so PF_GetFirstPage works).
-               We'll copy the built root page content into page 0. */
-
-            /* read root built page */
+            /* Copy final root into reserved page 0 */
             {
                 int builtRootPage = childPageNums[0];
                 char *builtBuf;
                 char *rootBuf;
                 int reservedRoot = 0; /* reserved earlier as page 0 */
 
-                /* Get both pages */
                 errVal = PF_GetThisPage(fileDesc, builtRootPage, &builtBuf);
                 if (errVal != PFE_OK) { PF_CloseFile(fileDesc); AM_Errno = AME_PF; return AME_PF; }
+                AMstats.pagesAccessed++;
+
                 errVal = PF_GetThisPage(fileDesc, reservedRoot, &rootBuf);
                 if (errVal != PFE_OK) { PF_UnfixPage(fileDesc, builtRootPage, FALSE); PF_CloseFile(fileDesc); AM_Errno = AME_PF; return AME_PF; }
+                AMstats.pagesAccessed++;
 
                 /* copy content */
                 bcopy(builtBuf, rootBuf, PF_PAGE_SIZE);
@@ -395,11 +398,9 @@ int nKeys;
                 if (errVal != PFE_OK) { PF_UnfixPage(fileDesc, builtRootPage, FALSE); PF_CloseFile(fileDesc); AM_Errno = AME_PF; return AME_PF; }
                 errVal = PF_UnfixPage(fileDesc, builtRootPage, FALSE);
                 if (errVal != PFE_OK) { PF_CloseFile(fileDesc); AM_Errno = AME_PF; return AME_PF; }
-
-                /* done */
             }
 
-            /* free child arrays containers (not their keys) */
+            /* free child arrays containers */
             free(childPageNums);
             free(childFirstKeys);
         }
@@ -412,6 +413,11 @@ int nKeys;
 
     /* Close the index file */
     PF_CloseFile(fileDesc);
+
+    /* Stop measurement & capture stats */
+    t1 = now_ms();
+    AM_CaptureStats(t1 - t0);
+
     AM_Errno = AME_OK;
     return AME_OK;
 }

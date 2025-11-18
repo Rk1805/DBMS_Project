@@ -4,8 +4,6 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/file.h>
-#include "pf.h"
-#include "buf.c"
 #include "pftypes.h"
 
 /* To keep system V and PC users happy */
@@ -13,8 +11,10 @@
 #define L_SET 0
 #endif
 
-int PF_MAX_BUFS_RUNTIME = PF_MAX_BUFS;   /* default 20 */
+
+int PF_MAX_BUFS_RUNTIME = PF_MAX_BUFS;
 int PFerrno = PFE_OK;	/* last error message */
+
 
 PFftab_ele PFftab[PF_FTAB_SIZE]; /* table of opened files */
 
@@ -163,7 +163,6 @@ int error;
 		else	PFerrno = PFE_INCOMPLETEWRITE;
 		return(PFerrno);
 	}
-	PF_physicalWrites++;
 	return(PFE_OK);
 
 }

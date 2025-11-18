@@ -2,6 +2,21 @@
 # include "am.h"
 # include "pf.h"
 
+/* forward declarations to avoid implicit-int / conflicting-type problems */
+/* K&R-style prototypes matching the later definitions */
+
+/* Better: full-typed K&R-compatible prototypes (preferred) */
+void AM_AddtoIntPage(char *pageBuf, char *value, int pageNum,
+                     AM_INTHEADER *header, int offset);
+
+void AM_FillRootPage(char *pageBuf, int pageNum1, int pageNum2,
+                     char *value, short attrLength, short maxKeys);
+
+void AM_SplitIntNode(char *pageBuf, char *pbuf1, char *pbuf2,
+                     AM_INTHEADER *header, char *value,
+                     int pageNum, int offset);
+
+void bcopy(char *src, char *dest, int nbytes);
 
 /* splits a leaf node */
 
@@ -215,7 +230,7 @@ int attrLength;
 
 
 /* adds a key to an internal node */
-AM_AddtoIntPage(pageBuf,value,pageNum,header,offset)
+void AM_AddtoIntPage(pageBuf,value,pageNum,header,offset)
 char *pageBuf;
 char *value; /* value to be added to the node */
 int pageNum; /* page number of child to be inserted */
@@ -248,7 +263,7 @@ AM_INTHEADER *header;
 
 
 /* Fills the header and inserts a key into a new root */
-AM_FillRootPage(pageBuf,pageNum1,pageNum2,value,attrLength,maxKeys)
+void AM_FillRootPage(pageBuf,pageNum1,pageNum2,value,attrLength,maxKeys)
 char *pageBuf;/* buffer to new root */
 int pageNum1,pageNum2;/* pagenumbers of it;s two children*/
 char *value; /* attr value to be inserted */
@@ -273,7 +288,7 @@ short attrLength,maxKeys; /* some info about the header */
 
 
 /* Split an internal node */
-AM_SplitIntNode(pageBuf,pbuf1,pbuf2,header,value,pageNum,offset)
+void AM_SplitIntNode(pageBuf,pbuf1,pbuf2,header,value,pageNum,offset)
 char *pageBuf;/* internal node to be split */
 char *pbuf1,*pbuf2; /* the buffers for the two halves */
 char *value; /*  pointer to key to be added and to be returned to parent*/
@@ -331,7 +346,7 @@ int pageNum,offset;
 
 }
 
-bcopy(char* s1, char *s2, int nbytes)
+void bcopy(char *src, char *dest, int nbytes)
 {
-memcpy(s2,s1,nbytes);
+    memcpy(dest, src, nbytes);
 }

@@ -3,10 +3,10 @@ PFbufGet(), PFbufUnfix(), PFbufAlloc(), PFbufReleaseFile(), PFbufUsed() and
 PFbufPrint() */
 #include <stdio.h>
 #include <stdlib.h> // This is the modern header for malloc()
-#include "pf.h"
 #include "pftypes.h"
 
 static int PFnumbpage = 0;	/* # of buffer pages in memory */
+static PFbpage *PFbufferpool = NULL;
 static PFbpage *PFfirstbpage= NULL;	/* ptr to first buffer page, or NULL */
 static PFbpage *PFlastbpage = NULL;	/* ptr to last buffer page, or NULL */
 static PFbpage *PFfreebpage= NULL;	/* list of free buffer pages */
@@ -14,10 +14,6 @@ int PF_logicalReads = 0;
 int PF_logicalWrites = 0;
 int PF_physicalReads = 0;
 int PF_physicalWrites = 0;
-extern int PF_physicalReads;
-extern int PF_physicalWrites;
-extern int PF_logicalReads;    /* we may also update logicalReads here if desired */
-extern int PF_logicalWrites;
 
 extern int PF_MAX_BUFS_RUNTIME;
 static void PFbufInsertFree(bpage)
@@ -137,9 +133,22 @@ int error;		/* error value returned*/
 
 	/* Set *bpage to the buffer page to be returned */
 	if (PFfreebpage != NULL){
-		/* Free list not empty, use the one from the free list. */
+
+		/* Free list not empty, take first */
 		*bpage = PFfreebpage;
-		PFfreebpage = (*bpage)->nextpage;
+		PFfreebpage = PFfreebpage->nextpage;
+
+		/* detach */
+		(*bpage)->nextpage = NULL;
+		(*bpage)->prevpage = NULL;
+
+		/* initialize frame metadata */
+		(*bpage)->fixed = FALSE;
+		(*bpage)->dirty = FALSE;
+		(*bpage)->fd = -1;
+		(*bpage)->page = -1;
+
+		return(PFE_OK);
 	}
 	else if (PFnumbpage < PF_MAX_BUFS_RUNTIME){
 		/* We have not reached max buffer limit, so
@@ -177,13 +186,22 @@ int error;		/* error value returned*/
 
 		/* write out the dirty page */
 		if (tbpage->dirty) {
+			/* count a physical write for this eviction */
+			PF_physicalWrites++;
+
+			/* actually write the page out to disk */
 			error = (*writefcn)(tbpage->fd, tbpage->page, &tbpage->fpage);
 			if (error != PFE_OK) {
 				/* pass error up */
 				return(error);
 			}
+			/* clear dirty after successful write */
+			tbpage->dirty = FALSE;
+		} 
+		else{
+			/* ensure dirty flag cleared */
+			tbpage->dirty = FALSE;
 		}
-		tbpage->dirty = FALSE;
 
 		/* unlink from hash table */
 		if ((error=PFhashDelete(tbpage->fd,tbpage->page))!= PFE_OK)
@@ -260,6 +278,10 @@ int error;
 			return(error);
 		}
 
+		/* set the fields for this page*/
+		bpage->fd = fd;
+		bpage->page = pagenum;
+		bpage->dirty = FALSE;
 		/* insert new page into hash table */
 		if ((error=PFhashInsert(fd,pagenum,bpage))!=PFE_OK){
 			/* failed to insert into hash table */
@@ -268,11 +290,7 @@ int error;
 			PFbufInsertFree(bpage);
 			return(error);
 		}
-
-		/* set the fields for this page*/
-		bpage->fd = fd;
-		bpage->page = pagenum;
-		bpage->dirty = FALSE;
+		PF_logicalReads++;
 	}
 	else if (bpage->fixed){
 		/* page already in memory, and is fixed, so we can't
@@ -281,6 +299,11 @@ int error;
 		*fpage = &bpage->fpage;
 		PFerrno = PFE_PAGEFIXED;
 		return(PFerrno);
+	}
+	else {
+		/* page already in buffer and not fixed => hit */
+		PF_logicalReads++;
+		/* continue to fix below */
 	}
 
 	/* Fix the page in the buffer then return*/
@@ -427,9 +450,10 @@ int error;		/* error code */
 
 			/* write out dirty page */
 			if (bpage->dirty) {
+				/* count the physical write */
+				PF_physicalWrites++;
 				if ((error = (*writefcn)(fd, bpage->page, &bpage->fpage)) != PFE_OK)
 					return(error);
-				/* successful write */
 			}
 			bpage->dirty = FALSE;
 
@@ -519,16 +543,54 @@ PFbpage *bpage;
 
 void PF_PrintStats() {
     printf("Logical Reads: %d\n", PF_logicalReads);
-    printf("Logical Writes: %d\n", PF_logicalWrites);
     printf("Physical Reads: %d\n", PF_physicalReads);
+    printf("Logical Writes: %d\n", PF_logicalWrites);
     printf("Physical Writes: %d\n", PF_physicalWrites);
 }
 
 void PFbufInit(num)
 int num;
 {
-    PF_Init(num);
+    int i;
+
+    /* allocate buffer pool */
+    PFbufferpool = (PFbpage *) malloc(num * sizeof(PFbpage));
+    if (PFbufferpool == NULL) {
+        fprintf(stderr, "PFbufferpool malloc failed\n");
+        exit(1);
+    }
+
+    /* link all frames */
+    for (i = 0; i < num; i++) {
+        PFbufferpool[i].nextpage = (i == num - 1) ? NULL : &PFbufferpool[i+1];
+        PFbufferpool[i].prevpage = (i == 0) ? NULL : &PFbufferpool[i-1];
+        PFbufferpool[i].dirty = FALSE;
+        PFbufferpool[i].fixed = FALSE;
+        PFbufferpool[i].fd = -1;
+        PFbufferpool[i].page = -1;
+    }
+
+    /* free list is entire buffer pool */
+    PFfreebpage = &PFbufferpool[0];
+
+    /* used list starts empty */
+    PFfirstbpage = NULL;
+    PFlastbpage = NULL;
+
+    /* store number of buffers */
+    PF_MAX_BUFS_RUNTIME = num;
+
+    /* buffer statistics */
+    PFbufStatsInit();
+
+    /* also init file + hash tables AFTER buffer pool init */
+    PFhashInit();
+    for (i = 0; i < PF_FTAB_SIZE; i++){
+        PFftab[i].fname = NULL;
+        PFftab[i].strategy = PF_REPLACE_LRU;
+    }
 }
+
 
 /* wrapper: set a page dirty (calls PF_MarkDirty implemented in pf.c) */
 int PFbufSetDirty(fd, pageNum)

@@ -20,6 +20,12 @@ tests: testhash testpf
 testpf: testpf.o pflayer.o
 	cc $(CFLAGS) -o testpf testpf.o pflayer.o -lm
 
+pf_test: pf_test.c pf.o buf.o hash.o
+	cc $(CFLAGS) -o pf_test pf_test.c pf.o buf.o hash.o
+
+rmtest: rmtest.o rm.o pf.o buf.o hash.o
+	$(CC) $(CFLAGS) -o rmtest rmtest.o rm.o pf.o buf.o hash.o
+
 testhash: testhash.o pflayer.o
 	cc $(CFLAGS) -o testhash testhash.o pflayer.o -lm
 

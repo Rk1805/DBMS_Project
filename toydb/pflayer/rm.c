@@ -64,6 +64,12 @@ RM_FileHandle *fh;
     if (fd < 0)
         return fd;
     fh->fd = fd;
+
+    /* initialize RM metrics */
+    fh->totalRecords = 0;
+    fh->totalDeleted = 0;
+    fh->totalPayloadBytes = 0;
+
     return PFE_OK;
 }
 
@@ -128,6 +134,10 @@ RID *rid;
     rid->page = page;
     rid->slot = hdr->numSlots - 1;
 
+    /* --- Metrics: update AFTER successful insert --- */
+    fh->totalRecords++;
+    fh->totalPayloadBytes += rec->length;
+
     PF_UnfixPage(fd, page, TRUE);
     return PFE_OK;
 }
@@ -163,6 +173,7 @@ RID *rid;
     }
 
     slot->offset = -1; /* mark deleted */
+    fh->totalDeleted++;
 
     PF_UnfixPage(fd, rid->page, TRUE);
     return PFE_OK;
@@ -293,4 +304,86 @@ RM_Record *rec;
     }
 
     return PFE_EOF;
+}
+
+
+int RM_AnalyzePage(fh, pageNum, usedBytes, numSlots, numDeleted)
+RM_FileHandle *fh;
+int pageNum;
+int *usedBytes;
+int *numSlots;
+int *numDeleted;
+{
+    char *pagebuf;
+    struct RM_PageHdr *hdr;
+    struct RM_Slot *slot;
+    int error, s;
+    int payload = 0;
+    int deleted = 0;
+
+    /* Try to fetch the page. PF_GetThisPage may return PFE_OK or
+       PFE_PAGEFIXED (page already fixed). Treat both as success. */
+    error = PF_GetThisPage(fh->fd, pageNum, &pagebuf);
+    if (error != PFE_OK && error != PFE_PAGEFIXED) {
+        /* real error */
+        return error;
+    }
+
+    hdr = (struct RM_PageHdr *) pagebuf;
+
+    *numSlots = hdr->numSlots;
+    *numDeleted = 0;
+
+    for (s = 0; s < hdr->numSlots; s++) {
+        slot = rm_GetSlot(pagebuf, s);
+        if (slot->offset == -1)
+            (*numDeleted)++;
+        else
+            payload += slot->length;
+    }
+
+    *usedBytes = payload;
+
+    /* Unfix the page now that we're done with it.
+       PF_UnfixPage should be called regardless of whether
+       PF_GetThisPage returned PFE_OK or PFE_PAGEFIXED. */
+    PF_UnfixPage(fh->fd, pageNum, FALSE);
+    return PFE_OK;
+}
+
+
+int RM_ComputeFileStats(fh, totalPages, totalPayload, slottedUtil, totalSlots, deletedSlots)
+RM_FileHandle *fh;
+int *totalPages;
+int *totalPayload;
+double *slottedUtil;
+int *totalSlots;
+int *deletedSlots;
+{
+    int error, page = -1;
+    char *pagebuf;
+    int used, slots, deleted;
+
+    *totalPages = 0;
+    *totalPayload = 0;
+    *totalSlots = 0;
+    *deletedSlots = 0;
+
+    while (1) {
+        error = PF_GetNextPage(fh->fd, &page, &pagebuf);
+        if (error == PFE_EOF)
+            break;
+        if (error != PFE_OK)
+            return error;
+
+        RM_AnalyzePage(fh, page, &used, &slots, &deleted);
+
+        *totalPages += 1;
+        *totalPayload += used;
+        *totalSlots += slots;
+        *deletedSlots += deleted;
+    }
+
+    *slottedUtil = 100.0 * ((double)*totalPayload) / (*totalPages * PF_PAGE_SIZE);
+    return PFE_OK;
 }

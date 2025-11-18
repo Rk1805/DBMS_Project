@@ -22,8 +22,6 @@ typedef struct am_intheader
 extern int AM_RootPageNum; /* The page number of the root */
 extern int AM_LeftPageNum; /* The page Number of the leftmost leaf */
 extern int AM_Errno; /* last error in AM layer */
-extern char *calloc();
-extern char *malloc();
 extern int AM_BulkLoadFromSortedPairs(
     char *fileName, int indexNo, char attrType,
     int attrLength, char **keys, int *recIds, int nKeys);
@@ -39,6 +37,14 @@ extern int AM_BuildIndexIncremental(
 extern int AM_BenchmarkIndexConstruction(
     char *dataFileName, int dataFd, char attrType, int attrLength,
     char *indexFileName);
+extern void AM_FillRootPage(char *pageBuf, int pageNum1, int pageNum2,
+                     char *value, short attrLength, short maxKeys);
+
+extern void AM_AddtoIntPage(char *pageBuf, char *value, int pageNum,
+                     AM_INTHEADER *header, int offset);
+
+extern void AM_SplitIntNode(char *pageBuf, char *pbuf1, char *pbuf2,
+                     AM_INTHEADER *header, char *value, int pageNum, int offset);
 
 # define AM_Check if (errVal != PFE_OK) {AM_Errno = AME_PF; return(AME_PF) ;}
 # define AM_si sizeof(int)
@@ -67,6 +73,9 @@ extern int AM_BenchmarkIndexConstruction(
 # define NOT_EQUAL 6
 # define MAXSCANS 20
 # define AM_MAXATTRLENGTH 256
+
+#define INT_TYPE    'i'
+#define STRING_TYPE 'c'
 
 
 # define AME_OK 0

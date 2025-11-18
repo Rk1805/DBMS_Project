@@ -11,6 +11,9 @@ typedef struct RID {
 
 typedef struct RM_FileHandle {
     int fd;
+    int totalRecords;         /* total inserted */
+    int totalDeleted;         /* total deleted (slot offset = -1) */
+    int totalPayloadBytes;    /* total payload bytes */
 } RM_FileHandle;
 
 typedef struct RM_Record {
@@ -41,5 +44,9 @@ int RM_DeleteRecord();   /* RM_DeleteRecord(fh, rid) */
 
 int RM_GetFirstRecord(); /* RM_GetFirstRecord(fh, rid, record) */
 int RM_GetNextRecord();  /* RM_GetNextRecord(fh, rid, record) */
+
+int RM_AnalyzePage(); /* RM_AnalyzePage(fh, pageNum) */
+
+int RM_ComputeFileStats();
 
 #endif

@@ -1,6 +1,7 @@
 # include <stdio.h>
 # include "am.h"
-# include "pf.h"
+# include "../pflayer/pf.h"
+#include "amstats.h"
 
 /* searches for a key in a binary tree - returns FOUND or NOTFOUND and
 returns the pagenumber and the offset where key is present or could 
@@ -29,6 +30,7 @@ int *indexPtr; /* pointer to index in leaf where key is present or
         /* get the root of the B+ tree */
 
 	errVal = PF_GetFirstPage(fileDesc,pageNum,pageBuf);
+	AMstats.pagesAccessed++;
 	AM_Check;
 	if (**pageBuf == 'l' ) 
 		/* if root is a leaf page */
@@ -63,6 +65,7 @@ int *indexPtr; /* pointer to index in leaf where key is present or
 
 		/* Get the next page to be followed */
 		errVal = PF_GetThisPage(fileDesc,*pageNum,pageBuf);
+		AMstats.pagesAccessed++;
 		AM_Check;
 
 		if (**pageBuf == 'l' ) 
@@ -129,9 +132,8 @@ AM_INTHEADER *header;
 
 	
 	/* check the border cases */
-	if ((high - low) == 0)
-		if(AM_Compare(pageBuf+AM_sint+AM_si +(low - 1)*recSize,attrType,
-		attrLength, value) < 0)
+	if ((high - low) == 0){
+		if(AM_Compare(pageBuf+AM_sint+AM_si +(low - 1)*recSize,attrType,attrLength, value) < 0)
 		{
 			bcopy(pageBuf+AM_sint+(low-1)*recSize,(char *)&pageNum,
 			      AM_si);
@@ -145,7 +147,7 @@ AM_INTHEADER *header;
 			*indexPtr = low;
 			return(pageNum);
 		}
-
+	}
 	if ((high - low) == 1)
 		if(AM_Compare(pageBuf+AM_sint+AM_si +(low - 1)*recSize,attrType,
 		attrLength, value) < 0)
@@ -155,7 +157,7 @@ AM_INTHEADER *header;
 			*indexPtr = low -1;
 			return(pageNum);
 		}
-		else
+		else{
 			if(AM_Compare(pageBuf+AM_sint+AM_si +low*recSize,
 			attrType,attrLength, value) < 0)
 			{
@@ -171,7 +173,7 @@ AM_INTHEADER *header;
 			*indexPtr = low + 1;
 			return(pageNum);
 		        }
-
+		}
 }
 
 
